@@ -2,6 +2,12 @@
 
 面向 Debian 12/13/14（包括当前的 Debian 14 testing）和 Ubuntu 22.04/24.04/26.04 的 LNMPP 安装与站点管理脚本。首次安装会配置 Nginx、MariaDB、PHP-FPM、phpMyAdmin、Supervisor 和 vsftpd。需要 root 权限及 systemd；请在新服务器上运行。
 
+
+一键命令：
+```bash
+wget -O install.sh https://raw.githubusercontent.com/smithwhere/lnmpp/refs/heads/main/install.sh && bash install.sh
+```
+
 ```bash
 git clone https://github.com/smithwhere/lnmpp.git
 cd lnmpp
