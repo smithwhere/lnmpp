@@ -390,7 +390,7 @@ import re
 import sys
 path = Path(sys.argv[1])
 data = path.read_text()
-section = '[inet_http_server]\nport=127.0.0.1:8000\nusername=admin\npassword=password\n'
+section = '[inet_http_server]\nport=*:8000\nusername=admin\npassword=password\n'
 pattern = r'(?ms)^\[inet_http_server\][^\[]*(?=^\[|\Z)'
 if re.search(pattern, data):
     data = re.sub(pattern, section, data, count=1)
@@ -718,7 +718,7 @@ install_stack() {
     say "phpMyAdmin密码：$PMA_PASSWORD"
     say "root密码：$PMA_PASSWORD"
     say 'phpMyAdmin地址：http://服务器IP/phpmyadmin/'
-    say 'Supervisor HTTP：http://127.0.0.1:8000/（admin / password）'
+    say 'Supervisor HTTP：http://服务器IP:8000/（admin / password）'
 }
 
 main() {
