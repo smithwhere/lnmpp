@@ -67,6 +67,39 @@ CERT_DIR=$STATE_DIR/certs
 NGINX_DIR=$tmp/nginx
 ACME_HOME=$tmp/acme
 mkdir -p "$SITES_DIR" "$CERT_DIR/example.com" "$NGINX_DIR/sites-available" "$NGINX_DIR/sites-enabled" "$ACME_HOME"
+acme_fixture=$tmp/acme-fixture
+mkdir -p "$acme_fixture/dnsapi"
+cat > "$acme_fixture/acme.sh" <<'SH'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+[[ $1 == --install ]]
+while [[ $# -gt 0 ]]; do
+    if [[ $1 == --home ]]; then
+        install_home=$2
+        break
+    fi
+    shift
+done
+mkdir -p "$install_home/dnsapi"
+# The upstream installer copies these files relative to its working directory.
+cp acme.sh "$install_home/acme.sh"
+cp dnsapi/dns_cf.sh "$install_home/dnsapi/dns_cf.sh"
+chmod +x "$install_home/acme.sh"
+SH
+printf 'Cloudflare DNS hook\n' > "$acme_fixture/dnsapi/dns_cf.sh"
+git() {
+    [[ $1 == clone && $2 == --depth && $3 == 1 && $4 == https://github.com/acmesh-official/acme.sh.git ]] || fail 'unexpected git command'
+    mkdir -p "$5/dnsapi"
+    cp "$acme_fixture/acme.sh" "$5/acme.sh"
+    cp "$acme_fixture/dnsapi/dns_cf.sh" "$5/dnsapi/dns_cf.sh"
+}
+acme_home_before=$ACME_HOME
+ACME_HOME=$tmp/acme-install
+ensure_acme
+[[ -x $ACME_HOME/acme.sh ]] || fail 'acme.sh was not installed'
+assert_eq "$(<"$ACME_HOME/dnsapi/dns_cf.sh")" 'Cloudflare DNS hook'
+ACME_HOME=$acme_home_before
+unset -f git
 nginx() { [[ $1 == -t ]]; }
 supervisorctl() { return 1; }
 php_version() { printf '8.3'; }
