@@ -243,7 +243,7 @@ ensure_acme() {
     [[ -x $ACME_HOME/acme.sh ]] && return 0
     tmp=$(mktemp -d)
     git clone --depth 1 https://github.com/acmesh-official/acme.sh.git "$tmp/source"
-    bash "$tmp/source/acme.sh" --install --home "$ACME_HOME" --config-home "$ACME_HOME" --nocron
+    (cd "$tmp/source" && bash ./acme.sh --install --home "$ACME_HOME" --config-home "$ACME_HOME" --nocron)
     rm -rf -- "$tmp"
     [[ -x $ACME_HOME/acme.sh ]] || die '安装 acme.sh 失败。'
 }

@@ -67,3 +67,8 @@ jobs:
               ftp.prot_p()
               assert ftp.pwd() == '/'
           PY
+      - name: Install acme.sh from upstream
+        run: |
+          sudo bash -c 'source ./install.sh; ensure_acme'
+          test -x /opt/lnmpp/acme/acme.sh
+          test -f /opt/lnmpp/acme/dnsapi/dns_cf.sh
