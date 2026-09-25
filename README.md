@@ -1,0 +1,74 @@
+# LNMPP
+
+面向 Debian 12/13/14 和 Ubuntu 22.04/24.04/26.04 的 LNMPP 安装与站点管理脚本。首次安装会配置 Nginx、MariaDB、PHP-FPM、phpMyAdmin、Supervisor 和 vsftpd。需要 root 权限及 systemd；请在新服务器上运行。
+
+```bash
+git clone https://github.com/smithwhere/lnmpp.git
+cd lnmpp
+sudo bash install.sh
+```
+
+安装完成后，终端会显示 `LNMPP安装成功。`、随机生成的 phpMyAdmin 用户名及密码（各 10 位，均含大小写字母、数字和特殊字符）。凭据另保存在仅 root 可读的 `/etc/lnmpp/phpmyadmin-credentials`。phpMyAdmin 位于 `http://服务器IP/phpmyadmin/`，随机账号具有数据库管理权限；也可以使用 `root` 和输出的同一密码登录。Web 登录不限制来源 IP。MariaDB 默认仍只监听本机，脚本没有开放数据库 TCP 远程连接。
+
+Supervisor 在 `/etc/supervisor/supervisord.conf` 配置 HTTP `127.0.0.1:8000`，用户名 `admin`，密码 `password`。Nginx、MariaDB、PHP-FPM 分别以 `nginx`、`mariadb`、`php-fpm` 进程名由 Supervisor 接管。需远程访问 Supervisor 时，可用 SSH 转发：
+
+```bash
+ssh -L 8000:127.0.0.1:8000 root@服务器IP
+```
+
+然后在本机打开 `http://127.0.0.1:8000/`。
+
+## 网站
+
+```bash
+sudo bash install.sh add 'example.com\*.example.com' /var/www/example.com
+sudo bash install.sh add example.com /var/www/example.com
+```
+
+反斜杠 `\` 是普通域名和泛域名的分隔符；请用单引号包裹带泛域名的参数。泛域名必须是同一主域的 `*.example.com`。成功后输出 `网站成功创建完成`。脚本创建网站目录及 Nginx 站点配置；域名的 DNS 解析需要自行设置。
+
+## 数据库
+
+```bash
+sudo bash install.sh add db dbname username 'password'
+```
+
+用户名仅供本机连接，成功后输出 `数据库成功创建完成`。含 shell 特殊字符的密码请加引号。
+
+## SSL
+
+先添加网站，再添加证书。使用 Cloudflare DNS API Token 完成 DNS 验证；Token 需要对应区域的 DNS 编辑权限。
+
+```bash
+sudo bash install.sh add ssl 70 cloudflare 'example.com\*.example.com' 'CLOUDFLARE_TOKEN'
+sudo bash install.sh add ssl 70 cloudflare example.com 'CLOUDFLARE_TOKEN'
+```
+
+`70` 表示距离到期不足 70 天时续期，可改为 1–89。成功后输出 `ssl证书成功创建完成`。脚本每天检查一次已启用站点的证书。Token 保存在仅 root 可读的 `/etc/lnmpp/sites/<域名>/cf-token`。签发依赖域名解析、Cloudflare API 和 Let's Encrypt 可用。
+
+```bash
+sudo bash install.sh stop ssl example.com
+sudo bash install.sh start ssl example.com
+sudo bash install.sh stop ssl
+sudo bash install.sh start ssl
+```
+
+省略域名会处理脚本管理的全部 SSL 站点。停用关闭对应 HTTPS 配置并跳过续期，不删除证书；启用恢复 HTTPS 配置和每日续期。
+
+## FTP
+
+```bash
+sudo bash install.sh add ftp username 'password'
+```
+
+FTP 用户默认绑定 `/var/www/html`；成功后输出 `ftp成功创建完成`。vsftpd 使用 21 端口及被动端口 40000–40100，需按需放行防火墙。这里按要求提供传统 FTP；它不加密账号密码及传输内容，建议在可信网络内使用。
+
+## 检查
+
+```bash
+sudo supervisorctl -c /etc/supervisor/supervisord.conf status
+sudo nginx -t
+sudo systemctl status lnmpp-ssl-renew.timer
+```
+
+开发检查：`bash -n install.sh tests/run.sh && shellcheck -x install.sh tests/run.sh && bash tests/run.sh`。日志消息没有 `[lnmpp]` 前缀。
