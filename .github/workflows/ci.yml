@@ -21,6 +21,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install check dependencies
         run: apt-get update && apt-get install -y --no-install-recommends shellcheck python3 openssl
+      - name: Check application packages
+        run: |
+          for package in nginx mariadb-server php-fpm phpmyadmin supervisor vsftpd; do
+            apt-cache show "$package" >/dev/null
+          done
       - name: Syntax
         run: bash -n install.sh tests/run.sh
       - name: ShellCheck
@@ -44,6 +49,7 @@ jobs:
           sudo supervisorctl -c /etc/supervisor/supervisord.conf status
           sudo nginx -t
           curl -fsS -o /dev/null http://127.0.0.1/phpmyadmin/
+          curl -fsS -u admin:password -o /dev/null http://127.0.0.1:8000/
           test "$(sudo systemctl is-enabled mariadb.socket)" = masked
           test "$(sudo systemctl is-enabled supervisor)" = enabled
       - name: Check management commands
@@ -52,3 +58,12 @@ jobs:
           sudo bash install.sh add db lnmpp_ci_db lnmpp_ci_user 'CiPass_123!'
           sudo bash install.sh add ftp lnmpp_ci_ftp 'CiPass_123!'
           sudo nginx -t
+          python3 - <<'PY'
+          import ftplib
+          import ssl
+          with ftplib.FTP_TLS(context=ssl._create_unverified_context()) as ftp:
+              ftp.connect('127.0.0.1', 21, timeout=10)
+              ftp.login('lnmpp_ci_ftp', 'CiPass_123!')
+              ftp.prot_p()
+              assert ftp.pwd() == '/'
+          PY
