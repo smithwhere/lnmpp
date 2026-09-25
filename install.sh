@@ -7,6 +7,7 @@ SITES_DIR=$STATE_DIR/sites
 CERT_DIR=$STATE_DIR/certs
 SUPERVISOR_CONF=/etc/supervisor/supervisord.conf
 NGINX_DIR=${LNMPP_NGINX_DIR:-/etc/nginx}
+PMA_ACCESS_CONF=$NGINX_DIR/conf.d/lnmpp-phpmyadmin-access.conf
 ACME_HOME=/opt/lnmpp/acme
 SCRIPT_PATH=/usr/local/lib/lnmpp/install.sh
 
@@ -25,6 +26,8 @@ usage() {
   bash install.sh add ftp username password
   bash install.sh stop ssl [example.com]
   bash install.sh start ssl [example.com]
+  bash install.sh stop phpmyadmin
+  bash install.sh start phpmyadmin
 EOF
 }
 
@@ -101,6 +104,35 @@ php_version() {
     php -r 'echo PHP_MAJOR_VERSION, ".", PHP_MINOR_VERSION;'
 }
 
+render_pma_access_config() {
+    local mode=$1
+    cat <<'EOF'
+geo $lnmpp_pma_remote {
+    default 1;
+    127.0.0.1 0;
+    ::1 0;
+}
+map "$lnmpp_pma_remote:$uri" $lnmpp_pma_denied {
+    default 0;
+EOF
+    if [[ $mode == stop ]]; then
+        cat <<'EOF'
+    ~^1:/phpmyadmin(?:/|$) 1;
+EOF
+    fi
+    printf '}\n'
+}
+
+ensure_pma_access_config() {
+    local temp
+    [[ -f $PMA_ACCESS_CONF ]] && return 0
+    install -d -m 755 "$NGINX_DIR/conf.d"
+    temp=$(mktemp "$NGINX_DIR/conf.d/.lnmpp-pma.XXXXXX")
+    render_pma_access_config start > "$temp"
+    install -m 644 "$temp" "$PMA_ACCESS_CONF"
+    rm -f "$temp"
+}
+
 render_site_config() {
     local domain=$1 wildcard=$2 webroot=$3 ssl=$4 version=$5
     local server_names=$domain
@@ -110,6 +142,7 @@ render_site_config() {
 server {
     listen 80;
     server_name $server_names;
+    if (\$lnmpp_pma_denied) { return 403; }
     return 301 https://\$host\$request_uri;
 }
 EOF
@@ -133,6 +166,7 @@ EOF
     server_name $server_names;
     root $webroot;
     index index.php index.html;
+    if (\$lnmpp_pma_denied) { return 403; }
 EOF
     cat <<EOF
     location / {
@@ -163,6 +197,7 @@ read_site() {
 
 write_site_config() {
     local domain=$1 wildcard=$2 webroot=$3 ssl=$4 path temp backup='' link
+    ensure_pma_access_config
     path=$(site_file "$domain")
     link=$NGINX_DIR/sites-enabled/lnmpp-$domain.conf
     temp=$(mktemp "$NGINX_DIR/sites-available/.lnmpp.XXXXXX")
@@ -400,6 +435,7 @@ EOF
 
 configure_nginx_default() {
     local default=/etc/nginx/sites-enabled/default
+    ensure_pma_access_config
     install -d -m 755 /var/www/html
     if [[ -e $default || -L $default ]]; then
         [[ -L $default && $(readlink "$default") == /etc/nginx/sites-available/default ]] || \
@@ -414,6 +450,58 @@ configure_nginx_default() {
     fi
     ln -sfn /usr/share/phpmyadmin /var/www/html/phpmyadmin
     nginx -t
+}
+
+toggle_phpmyadmin_remote() {
+    local mode=$1 tmp dir domain i failed=0
+    local -a paths=("$PMA_ACCESS_CONF" "$NGINX_DIR/sites-available/lnmpp-default.conf")
+    [[ -f ${paths[1]} ]] || die 'LNMPP 默认站点配置不存在。'
+    for dir in "$SITES_DIR"/*; do
+        [[ -d $dir ]] || continue
+        domain=${dir##*/}
+        [[ -f $(site_file "$domain") ]] || die "网站配置不存在：$domain"
+        paths+=("$(site_file "$domain")")
+    done
+    install -d -m 755 "$NGINX_DIR/conf.d"
+    tmp=$(mktemp -d "$STATE_DIR/.pma-toggle.XXXXXX")
+    render_pma_access_config "$mode" > "$tmp/new-0"
+    render_site_config _ '' /var/www/html 0 "$(php_version)" > "$tmp/new-1"
+    i=2
+    for dir in "$SITES_DIR"/*; do
+        [[ -d $dir ]] || continue
+        domain=${dir##*/}
+        read_site "$domain"
+        render_site_config "$domain" "$SITE_WILDCARD" "$SITE_WEBROOT" "$SITE_SSL" "$(php_version)" > "$tmp/new-$i"
+        i=$((i + 1))
+    done
+    for ((i=0; i<${#paths[@]}; i++)); do
+        [[ ! -f ${paths[i]} ]] || cp -p "${paths[i]}" "$tmp/old-$i"
+    done
+    for ((i=0; i<${#paths[@]}; i++)); do
+        if ! install -m 644 "$tmp/new-$i" "${paths[i]}"; then
+            failed=1
+            break
+        fi
+    done
+    if ((failed == 0)) && ! nginx -t; then failed=1; fi
+    if ((failed == 0)) && ! supervisorctl -c "$SUPERVISOR_CONF" signal HUP nginx >/dev/null; then failed=1; fi
+    if ((failed != 0)); then
+        for ((i=0; i<${#paths[@]}; i++)); do
+            if [[ -f $tmp/old-$i ]]; then
+                cp -p "$tmp/old-$i" "${paths[i]}"
+            else
+                rm -f "${paths[i]}"
+            fi
+        done
+        rm -rf -- "$tmp"
+        die 'Nginx 配置切换失败，已恢复原配置。'
+    fi
+    rm -rf -- "$tmp"
+    if [[ $mode == stop ]]; then
+        say 'phpMyAdmin远程访问已停用。'
+    else
+        say 'phpMyAdmin远程访问已启用。'
+    fi
 }
 
 configure_ftp() {
@@ -651,8 +739,17 @@ main() {
             ;;
         stop|start)
             [[ -f $STATE_DIR/installed ]] || die '请先安装 LNMPP。'
-            [[ ${2:-} == ssl && $# -le 3 ]] || { usage; return 2; }
-            toggle_ssl "$command" "${3:-}"
+            case ${2:-} in
+                ssl)
+                    [[ $# -le 3 ]] || { usage; return 2; }
+                    toggle_ssl "$command" "${3:-}"
+                    ;;
+                phpmyadmin)
+                    [[ $# -eq 2 ]] || { usage; return 2; }
+                    toggle_phpmyadmin_remote "$command"
+                    ;;
+                *) usage; return 2 ;;
+            esac
             ;;
         renew-all)
             [[ $# -eq 1 ]] || { usage; return 2; }

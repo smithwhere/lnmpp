@@ -8,9 +8,16 @@ cd lnmpp
 sudo bash install.sh
 ```
 
-安装完成后，终端会显示 `LNMPP安装成功。`、随机生成的 phpMyAdmin 用户名及密码（各 10 位，均含大小写字母、数字和特殊字符）。凭据另保存在仅 root 可读的 `/etc/lnmpp/phpmyadmin-credentials`。phpMyAdmin 位于 `http://服务器IP/phpmyadmin/`，随机账号具有数据库管理权限；也可以使用 `root` 和输出的同一密码登录。Web 登录不限制来源 IP。MariaDB 默认仍只监听本机，脚本没有开放数据库 TCP 远程连接。
+安装完成后，终端会显示 `LNMPP安装成功。`、随机生成的 phpMyAdmin 用户名及密码（各 10 位，均含大小写字母、数字和特殊字符）。凭据另保存在仅 root 可读的 `/etc/lnmpp/phpmyadmin-credentials`。phpMyAdmin 位于 `http://服务器IP/phpmyadmin/`，随机账号具有数据库管理权限；也可以使用 `root` 和输出的同一密码登录。默认允许任意 IP 访问 Web 登录；可用下述命令停用远程访问。MariaDB 默认仍只监听本机，脚本没有开放数据库 TCP 远程连接。
 
 **安全提示：** 初装后的 phpMyAdmin 是公开 HTTP 页面，网络中途可观察登录凭据。由于安装时尚无域名证书，请先通过 SSH 隧道访问，或在可信网络内完成网站和证书设置；不要在不可信网络中直接输入 root 密码。Supervisor 只监听本机。安装中断后重试会复用已保存的数据库凭据。
+
+```bash
+sudo bash install.sh stop phpmyadmin
+sudo bash install.sh start phpmyadmin
+```
+
+`stop` 会让外部 IP 访问 LNMPP 管理的默认站点及网站的 `/phpmyadmin` 路径时收到 403；服务器本机的 `127.0.0.1` 和 `::1` 仍可访问，网站其他路径不受影响。`start` 恢复外部访问。命令不会删除账号或数据库，重复执行也有效。已有安装可先在仓库运行 `git pull`，再执行上述命令；切换时会重新生成脚本管理的 Nginx 站点配置，不会修改其他站点配置。
 
 Supervisor 在 `/etc/supervisor/supervisord.conf` 配置 HTTP `127.0.0.1:8000`，用户名 `admin`，密码 `password`。Nginx、MariaDB、PHP-FPM 分别以 `nginx`、`mariadb`、`php-fpm` 进程名由 Supervisor 接管。需远程访问 Supervisor 时，可用 SSH 转发：
 
