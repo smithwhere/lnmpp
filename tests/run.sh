@@ -9,6 +9,17 @@ assert_eq() { [[ "$1" == "$2" ]] || fail "expected '$2', got '$1'"; }
 assert_grep() { grep -Fq -- "$1" "$2" || fail "missing '$1' in $2"; }
 assert_not_grep() { if grep -Fq -- "$1" "$2"; then fail "unexpected '$1' in $2"; fi; }
 
+os_tmp=$(mktemp -d)
+printf 'ID=debian\n' > "$os_tmp/os-release"
+printf 'forky/sid\n' > "$os_tmp/debian_version"
+systemctl() { return 0; }
+OS_RELEASE_FILE=$os_tmp/os-release DEBIAN_VERSION_FILE=$os_tmp/debian_version check_os
+printf 'ID=debian\nVERSION_ID=11\n' > "$os_tmp/os-release"
+if ( OS_RELEASE_FILE=$os_tmp/os-release DEBIAN_VERSION_FILE=$os_tmp/debian_version check_os ) 2>/dev/null; then
+    fail 'accepted Debian 11'
+fi
+rm -rf "$os_tmp"
+
 parse_domains 'Example.COM\*.example.com'
 assert_eq "$PRIMARY_DOMAIN" 'example.com'
 assert_eq "$WILDCARD_DOMAIN" '*.example.com'
@@ -45,6 +56,8 @@ assert_not_grep 'listen 443 ssl' "$tmp/http.conf"
 
 render_site_config example.com '' /var/www/example.com 1 8.3 > "$tmp/https.conf"
 assert_grep 'listen 443 ssl;' "$tmp/https.conf"
+# shellcheck disable=SC2016
+assert_grep 'return 301 https://$host$request_uri;' "$tmp/https.conf"
 assert_grep 'ssl_certificate /etc/lnmpp/certs/example.com/fullchain.pem;' "$tmp/https.conf"
 assert_not_grep '*.example.com' "$tmp/https.conf"
 
@@ -72,6 +85,9 @@ else
     add_site 'example.com\*.example.com' "$tmp/web" > "$tmp/add-site.txt"
     assert_eq "$(<"$tmp/add-site.txt")" '网站成功创建完成'
     assert_eq "$(<"$SITES_DIR/example.com/ssl-enabled")" 0
+    if ( add_ssl 70 cloudflare example.com test-token ) 2>/dev/null; then
+        fail 'accepted certificate without existing wildcard'
+    fi
     cat > "$ACME_HOME/acme.sh" <<'SH'
 #!/usr/bin/env bash
 set -e
@@ -90,6 +106,7 @@ SH
     assert_eq "$(<"$tmp/add-ssl.txt")" 'ssl证书成功创建完成'
     assert_eq "$(<"$SITES_DIR/example.com/renew-days")" 70
     assert_eq "$(<"$SITES_DIR/example.com/ssl-enabled")" 1
+    [[ -L $tmp/web/phpmyadmin ]] || fail 'phpMyAdmin HTTPS link missing'
 fi
 assert_grep 'server_name example.com *.example.com;' "$NGINX_DIR/sites-available/lnmpp-example.com.conf"
 printf '#!/bin/sh\nexit 25\n' > "$ACME_HOME/acme.sh"
@@ -101,6 +118,12 @@ assert_not_grep 'listen 443 ssl;' "$NGINX_DIR/sites-available/lnmpp-example.com.
 [[ -s $CERT_DIR/example.com/key.pem ]] || fail 'stop removed certificate'
 renew_all || fail 'disabled certificate was renewed'
 
+openssl() { if [[ $1 == x509 ]]; then [[ -f $tmp/cert-valid ]]; else command openssl "$@"; fi; }
+if ( toggle_ssl_one start example.com ) 2>/dev/null; then
+    fail 'enabled an expired certificate after renewal failed'
+fi
+assert_eq "$(<"$SITES_DIR/example.com/ssl-enabled")" 0
+touch "$tmp/cert-valid"
 toggle_ssl_one start example.com
 assert_eq "$(<"$SITES_DIR/example.com/ssl-enabled")" 1
 assert_grep 'listen 443 ssl;' "$NGINX_DIR/sites-available/lnmpp-example.com.conf"
@@ -119,5 +142,16 @@ assert_grep 'CREATE DATABASE `sample_db`' "$tmp/db.sql"
 assert_grep "IDENTIFIED BY 'ab''c\\\\d'" "$tmp/db.sql"
 # shellcheck disable=SC2016
 assert_grep 'GRANT ALL PRIVILEGES ON `sample_db`.*' "$tmp/db.sql"
+
+STATE_DIR=$tmp/pma-state
+mkdir -p "$STATE_DIR"
+load_or_create_pma_credentials
+saved_username=$PMA_USERNAME
+saved_password=$PMA_PASSWORD
+saved_control=$PMA_CONTROL_PASSWORD
+load_or_create_pma_credentials
+assert_eq "$PMA_USERNAME" "$saved_username"
+assert_eq "$PMA_PASSWORD" "$saved_password"
+assert_eq "$PMA_CONTROL_PASSWORD" "$saved_control"
 
 printf 'All tests passed.\n'

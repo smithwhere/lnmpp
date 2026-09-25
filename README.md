@@ -1,6 +1,6 @@
 # LNMPP
 
-面向 Debian 12/13/14 和 Ubuntu 22.04/24.04/26.04 的 LNMPP 安装与站点管理脚本。首次安装会配置 Nginx、MariaDB、PHP-FPM、phpMyAdmin、Supervisor 和 vsftpd。需要 root 权限及 systemd；请在新服务器上运行。
+面向 Debian 12/13/14（包括当前的 Debian 14 testing）和 Ubuntu 22.04/24.04/26.04 的 LNMPP 安装与站点管理脚本。首次安装会配置 Nginx、MariaDB、PHP-FPM、phpMyAdmin、Supervisor 和 vsftpd。需要 root 权限及 systemd；请在新服务器上运行。
 
 ```bash
 git clone https://github.com/smithwhere/lnmpp.git
@@ -9,6 +9,8 @@ sudo bash install.sh
 ```
 
 安装完成后，终端会显示 `LNMPP安装成功。`、随机生成的 phpMyAdmin 用户名及密码（各 10 位，均含大小写字母、数字和特殊字符）。凭据另保存在仅 root 可读的 `/etc/lnmpp/phpmyadmin-credentials`。phpMyAdmin 位于 `http://服务器IP/phpmyadmin/`，随机账号具有数据库管理权限；也可以使用 `root` 和输出的同一密码登录。Web 登录不限制来源 IP。MariaDB 默认仍只监听本机，脚本没有开放数据库 TCP 远程连接。
+
+**安全提示：** 初装后的 phpMyAdmin 是公开 HTTP 页面，网络中途可观察登录凭据。由于安装时尚无域名证书，请先通过 SSH 隧道访问，或在可信网络内完成网站和证书设置；不要在不可信网络中直接输入 root 密码。Supervisor 只监听本机。安装中断后重试会复用已保存的数据库凭据。
 
 Supervisor 在 `/etc/supervisor/supervisord.conf` 配置 HTTP `127.0.0.1:8000`，用户名 `admin`，密码 `password`。Nginx、MariaDB、PHP-FPM 分别以 `nginx`、`mariadb`、`php-fpm` 进程名由 Supervisor 接管。需远程访问 Supervisor 时，可用 SSH 转发：
 
@@ -44,7 +46,7 @@ sudo bash install.sh add ssl 70 cloudflare 'example.com\*.example.com' 'CLOUDFLA
 sudo bash install.sh add ssl 70 cloudflare example.com 'CLOUDFLARE_TOKEN'
 ```
 
-`70` 表示距离到期不足 70 天时续期，可改为 1–89。成功后输出 `ssl证书成功创建完成`。脚本每天检查一次已启用站点的证书。Token 保存在仅 root 可读的 `/etc/lnmpp/sites/<域名>/cf-token`。签发依赖域名解析、Cloudflare API 和 Let's Encrypt 可用。
+`70` 表示距离到期不足 70 天时续期，可改为 1–89。成功后输出 `ssl证书成功创建完成`。脚本每天检查一次已启用站点的证书。启用 SSL 的网站会将 HTTP 重定向到 HTTPS，并可通过 `https://example.com/phpmyadmin/` 安全登录。Token 保存在仅 root 可读的 `/etc/lnmpp/sites/<域名>/cf-token`。签发依赖域名解析、Cloudflare API 和 Let's Encrypt 可用。
 
 ```bash
 sudo bash install.sh stop ssl example.com
@@ -61,7 +63,7 @@ sudo bash install.sh start ssl
 sudo bash install.sh add ftp username 'password'
 ```
 
-FTP 用户默认绑定 `/var/www/html`；成功后输出 `ftp成功创建完成`。vsftpd 使用 21 端口及被动端口 40000–40100，需按需放行防火墙。这里按要求提供传统 FTP；它不加密账号密码及传输内容，建议在可信网络内使用。
+FTP 用户默认绑定 `/var/www/html`；成功后输出 `ftp成功创建完成`。vsftpd 使用 21 端口及被动端口 40000–40100，需按需放行防火墙。服务器要求显式 FTPS 加密登录和数据连接，只允许脚本创建的 FTP 用户登录。安装时生成自签名 FTPS 证书；首次连接时请核对并信任该证书。
 
 ## 检查
 
@@ -71,4 +73,4 @@ sudo nginx -t
 sudo systemctl status lnmpp-ssl-renew.timer
 ```
 
-开发检查：`bash -n install.sh tests/run.sh && shellcheck -x install.sh tests/run.sh && bash tests/run.sh`。日志消息没有 `[lnmpp]` 前缀。
+开发检查：`bash -n install.sh tests/run.sh && shellcheck -x install.sh tests/run.sh && bash tests/run.sh`。CI 在六个目标发行版容器中运行语法、ShellCheck 和行为测试，并在临时 Ubuntu 24.04 主机上执行实际安装及网站、数据库、FTP 命令；其它发行版的完整安装和依赖真实 DNS 的签发仍需在目标服务器验证。日志消息没有 `[lnmpp]` 前缀。

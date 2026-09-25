@@ -4,14 +4,51 @@ on:
   pull_request:
 jobs:
   test:
+    name: ${{ matrix.image }}
     runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - debian:12
+          - debian:13
+          - debian:forky
+          - ubuntu:22.04
+          - ubuntu:24.04
+          - ubuntu:26.04
     steps:
       - uses: actions/checkout@v4
-      - name: Install ShellCheck
-        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Install check dependencies
+        run: apt-get update && apt-get install -y --no-install-recommends shellcheck python3 openssl
       - name: Syntax
         run: bash -n install.sh tests/run.sh
       - name: ShellCheck
         run: shellcheck -x install.sh tests/run.sh
       - name: Behavior
         run: bash tests/run.sh
+
+  install-ubuntu-24:
+    name: Fresh Ubuntu 24.04 installation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install and verify services
+        run: |
+          if ! sudo bash install.sh > "$RUNNER_TEMP/lnmpp-install.log" 2>&1; then
+            tail -n 80 "$RUNNER_TEMP/lnmpp-install.log"
+            exit 1
+          fi
+          grep -Fq 'LNMPP安装成功。' "$RUNNER_TEMP/lnmpp-install.log"
+          sudo supervisorctl -c /etc/supervisor/supervisord.conf status
+          sudo nginx -t
+          curl -fsS -o /dev/null http://127.0.0.1/phpmyadmin/
+          test "$(sudo systemctl is-enabled mariadb.socket)" = masked
+          test "$(sudo systemctl is-enabled supervisor)" = enabled
+      - name: Check management commands
+        run: |
+          sudo bash install.sh add example.com /var/www/example.com
+          sudo bash install.sh add db lnmpp_ci_db lnmpp_ci_user 'CiPass_123!'
+          sudo bash install.sh add ftp lnmpp_ci_ftp 'CiPass_123!'
+          sudo nginx -t

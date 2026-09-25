@@ -29,11 +29,17 @@ EOF
 }
 
 check_os() {
-    local os_file=${OS_RELEASE_FILE:-/etc/os-release}
+    local os_file=${OS_RELEASE_FILE:-/etc/os-release} version debian_file=${DEBIAN_VERSION_FILE:-/etc/debian_version}
     [[ -r $os_file ]] || die '无法读取系统版本。'
     # shellcheck disable=SC1090
     source "$os_file"
-    case "${ID:-}:${VERSION_ID:-}" in
+    version=${VERSION_ID:-}
+    if [[ ${ID:-} == debian && -z $version && -r $debian_file ]]; then
+        case $(<"$debian_file") in
+            forky|forky/sid) version=14 ;;
+        esac
+    fi
+    case "${ID:-}:$version" in
         debian:12|debian:13|debian:14|ubuntu:22.04|ubuntu:24.04|ubuntu:26.04) ;;
         *) die "不支持的系统：${ID:-unknown} ${VERSION_ID:-unknown}" ;;
     esac
@@ -99,12 +105,17 @@ render_site_config() {
     local domain=$1 wildcard=$2 webroot=$3 ssl=$4 version=$5
     local server_names=$domain
     [[ -z $wildcard ]] || server_names+=" $wildcard"
-    cat <<EOF
+    if [[ $ssl == 1 ]]; then
+        cat <<EOF
 server {
     listen 80;
     server_name $server_names;
-    root $webroot;
-    index index.php index.html;
+    return 301 https://\$host\$request_uri;
+}
+EOF
+    fi
+    cat <<EOF
+server {
 EOF
     if [[ $ssl == 1 ]]; then
         cat <<EOF
@@ -113,7 +124,16 @@ EOF
     ssl_certificate_key $CERT_DIR/$domain/key.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
 EOF
+    else
+        cat <<EOF
+    listen 80;
+EOF
     fi
+    cat <<EOF
+    server_name $server_names;
+    root $webroot;
+    index index.php index.html;
+EOF
     cat <<EOF
     location / {
         try_files \$uri \$uri/ /index.php?\$query_string;
@@ -210,7 +230,11 @@ add_ftp() {
     [[ -n $password && $password != *$'\n'* && $password != *$'\r'* && $password != *:* ]] || die 'FTP 密码无效。'
     id "$username" >/dev/null 2>&1 && die 'FTP 用户已存在。'
     useradd -M -d /var/www/html -s /usr/sbin/nologin -G www-data "$username"
-    printf '%s:%s\n' "$username" "$password" | chpasswd
+    if ! printf '%s:%s\n' "$username" "$password" | chpasswd; then
+        userdel "$username"
+        die '设置 FTP 密码失败。'
+    fi
+    printf '%s\n' "$username" >> "$STATE_DIR/ftp-users"
     say 'ftp成功创建完成'
 }
 
@@ -225,7 +249,7 @@ ensure_acme() {
 }
 
 add_ssl() {
-    local days=$1 provider=$2 spec=$3 token=$4 domain dir
+    local days=$1 provider=$2 spec=$3 token=$4 domain dir pma_link
     validate_renew_days "$days" || die '续期阈值必须是 1 到 89 天。'
     [[ $provider == cloudflare ]] || die '当前仅支持 cloudflare。'
     [[ -n $token && $token != *$'\n'* && $token != *$'\r'* ]] || die 'Cloudflare Token 无效。'
@@ -235,6 +259,13 @@ add_ssl() {
     [[ -d $dir ]] || die '请先用 add 创建网站。'
     read_site "$domain"
     [[ $SITE_SSL == 0 ]] || die '该站点已启用 SSL。'
+    [[ -z $SITE_WILDCARD || $SITE_WILDCARD == "$WILDCARD_DOMAIN" ]] || \
+        die '网站包含泛域名，SSL 证书也必须包含相同泛域名。'
+    pma_link=$SITE_WEBROOT/phpmyadmin
+    if [[ -e $pma_link || -L $pma_link ]]; then
+        [[ -L $pma_link && $(readlink "$pma_link") == /usr/share/phpmyadmin ]] || \
+            die '网站目录中已有 phpmyadmin 路径，无法提供 HTTPS phpMyAdmin。'
+    fi
     ensure_acme
     install -d -m 700 "$CERT_DIR/$domain"
     local -a names=(-d "$domain")
@@ -244,6 +275,7 @@ add_ssl() {
         --key-file "$CERT_DIR/$domain/key.pem" \
         --fullchain-file "$CERT_DIR/$domain/fullchain.pem"
     chmod 600 "$CERT_DIR/$domain/key.pem"
+    [[ -L $pma_link ]] || ln -s /usr/share/phpmyadmin "$pma_link"
     write_site_config "$domain" "$WILDCARD_DOMAIN" "$SITE_WEBROOT" 1
     printf '%s' "$WILDCARD_DOMAIN" > "$dir/wildcard"
     printf '%s' "$days" > "$dir/renew-days"
@@ -254,13 +286,20 @@ add_ssl() {
 }
 
 toggle_ssl_one() {
-    local mode=$1 domain=$2 dir target
+    local mode=$1 domain=$2 dir target token
     valid_domain "$domain" || die '域名格式无效。'
     read_site "$domain"
     dir=$(site_state "$domain")
     [[ -f $dir/renew-days && -f $dir/cf-token ]] || die "站点没有脚本管理的证书：$domain"
     if [[ $mode == start ]]; then
         [[ -s $CERT_DIR/$domain/fullchain.pem && -s $CERT_DIR/$domain/key.pem ]] || die "证书文件缺失：$domain"
+        if ! openssl x509 -in "$CERT_DIR/$domain/fullchain.pem" -noout -checkend 0 >/dev/null 2>&1; then
+            token=$(<"$dir/cf-token")
+            CF_Token=$token "$ACME_HOME/acme.sh" --renew --force --server letsencrypt -d "$domain" || \
+                die "证书已过期且续期失败：$domain"
+            openssl x509 -in "$CERT_DIR/$domain/fullchain.pem" -noout -checkend 0 >/dev/null 2>&1 || \
+                die "续期后证书仍不可用：$domain"
+        fi
         target=1
     else
         target=0
@@ -307,6 +346,7 @@ renew_all() {
 }
 
 configure_supervisor() {
+    install -d -m 755 /var/log/supervisor
     python3 - "$SUPERVISOR_CONF" <<'PY'
 from pathlib import Path
 import re
@@ -377,6 +417,15 @@ configure_nginx_default() {
 }
 
 configure_ftp() {
+    install -d -m 700 "$STATE_DIR/ftp"
+    touch "$STATE_DIR/ftp-users"
+    chmod 600 "$STATE_DIR/ftp-users"
+    if [[ ! -s $STATE_DIR/ftp/cert.pem || ! -s $STATE_DIR/ftp/key.pem ]]; then
+        openssl req -x509 -newkey rsa:3072 -nodes -days 3650 \
+            -subj '/CN=lnmpp-ftp' \
+            -keyout "$STATE_DIR/ftp/key.pem" -out "$STATE_DIR/ftp/cert.pem" >/dev/null 2>&1
+        chmod 600 "$STATE_DIR/ftp/key.pem"
+    fi
     if [[ -e /etc/vsftpd.conf && ! -e /etc/vsftpd.conf.lnmpp-original ]]; then
         cp -p /etc/vsftpd.conf /etc/vsftpd.conf.lnmpp-original
     fi
@@ -391,6 +440,18 @@ chroot_local_user=YES
 allow_writeable_chroot=YES
 local_root=/var/www/html
 pam_service_name=vsftpd
+userlist_enable=YES
+userlist_deny=NO
+userlist_file=/etc/lnmpp/ftp-users
+ssl_enable=YES
+force_local_logins_ssl=YES
+force_local_data_ssl=YES
+ssl_sslv2=NO
+ssl_sslv3=NO
+ssl_tlsv1=NO
+ssl_ciphers=HIGH
+rsa_cert_file=/etc/lnmpp/ftp/cert.pem
+rsa_private_key_file=/etc/lnmpp/ftp/key.pem
 pasv_enable=YES
 pasv_min_port=40000
 pasv_max_port=40100
@@ -403,23 +464,58 @@ EOF
     systemctl restart vsftpd
 }
 
+load_or_create_pma_credentials() {
+    local credentials temp
+    credentials=$STATE_DIR/phpmyadmin-credentials
+    if [[ -s $credentials ]]; then
+        PMA_USERNAME=$(sed -n 's/^username=//p' "$credentials")
+        PMA_PASSWORD=$(sed -n 's/^password=//p' "$credentials")
+        PMA_CONTROL_USER=$(sed -n 's/^controluser=//p' "$credentials")
+        PMA_CONTROL_PASSWORD=$(sed -n 's/^controlpass=//p' "$credentials")
+        PMA_SECRET=$(sed -n 's/^blowfish_secret=//p' "$credentials")
+        [[ -n $PMA_USERNAME && -n $PMA_PASSWORD && -n $PMA_CONTROL_USER && -n $PMA_CONTROL_PASSWORD && -n $PMA_SECRET ]] || \
+            die '已有凭据文件不完整，停止安装以免更改数据库账号。'
+    else
+        PMA_USERNAME=$(random_ten)
+        PMA_PASSWORD=$(random_ten)
+        PMA_CONTROL_USER=lnmpp_$(openssl rand -hex 4)
+        PMA_CONTROL_PASSWORD=$(openssl rand -hex 24)
+        PMA_SECRET=$(openssl rand -hex 32)
+        temp=$(mktemp "$STATE_DIR/.credentials.XXXXXX")
+        printf 'username=%s\npassword=%s\nroot_password=%s\ncontroluser=%s\ncontrolpass=%s\nblowfish_secret=%s\n' \
+            "$PMA_USERNAME" "$PMA_PASSWORD" "$PMA_PASSWORD" "$PMA_CONTROL_USER" "$PMA_CONTROL_PASSWORD" "$PMA_SECRET" > "$temp"
+        chmod 600 "$temp"
+        mv "$temp" "$credentials"
+    fi
+}
+
 configure_phpmyadmin() {
-    local username password controlpass sql_file secret
-    username=$(random_ten)
-    password=$(random_ten)
-    controlpass=$(openssl rand -hex 24)
-    secret=$(openssl rand -hex 32)
+    local username password controluser controlpass sql_file secret
+    load_or_create_pma_credentials
+    username=$PMA_USERNAME
+    password=$PMA_PASSWORD
+    controluser=$PMA_CONTROL_USER
+    controlpass=$PMA_CONTROL_PASSWORD
+    secret=$PMA_SECRET
     mariadb <<SQL
 ALTER USER 'root'@'localhost' IDENTIFIED VIA unix_socket OR mysql_native_password USING PASSWORD('$(sql_escape "$password")');
-CREATE USER '$username'@'localhost' IDENTIFIED BY '$(sql_escape "$password")';
+CREATE USER IF NOT EXISTS '$username'@'localhost' IDENTIFIED BY '$(sql_escape "$password")';
+ALTER USER '$username'@'localhost' IDENTIFIED BY '$(sql_escape "$password")';
 GRANT ALL PRIVILEGES ON *.* TO '$username'@'localhost' WITH GRANT OPTION;
 CREATE DATABASE IF NOT EXISTS phpmyadmin CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER IF NOT EXISTS 'lnmpp_pma'@'localhost' IDENTIFIED BY '$controlpass';
-GRANT SELECT, INSERT, UPDATE, DELETE ON phpmyadmin.* TO 'lnmpp_pma'@'localhost';
+CREATE USER IF NOT EXISTS '$controluser'@'localhost' IDENTIFIED BY '$controlpass';
+ALTER USER '$controluser'@'localhost' IDENTIFIED BY '$controlpass';
+GRANT SELECT, INSERT, UPDATE, DELETE ON phpmyadmin.* TO '$controluser'@'localhost';
 SQL
     sql_file=$(dpkg -L phpmyadmin | grep '/create_tables.sql$' | head -n 1)
     [[ -n $sql_file && -f $sql_file ]] || die '找不到 phpMyAdmin 高级功能 SQL 文件。'
     mariadb phpmyadmin < "$sql_file"
+    MYSQL_PWD=$controlpass mariadb --user="$controluser" --protocol=socket \
+        --batch --skip-column-names -e 'SELECT COUNT(*) FROM phpmyadmin.pma__bookmark' >/dev/null || \
+        die 'phpMyAdmin 高级功能账号检查失败。'
+    MYSQL_PWD=$password runuser -u www-data -- mariadb --user=root --protocol=socket \
+        --batch --skip-column-names -e 'SELECT 1' >/dev/null || \
+        die 'phpMyAdmin root 密码登录检查失败。'
     install -d -m 755 /etc/phpmyadmin/conf.d
     cat > /etc/phpmyadmin/conf.d/lnmpp.php <<EOF
 <?php
@@ -429,7 +525,7 @@ SQL
 \$cfg['Servers'][\$i]['AllowRoot'] = true;
 \$cfg['Servers'][\$i]['AllowNoPassword'] = false;
 \$cfg['Servers'][\$i]['pmadb'] = 'phpmyadmin';
-\$cfg['Servers'][\$i]['controluser'] = 'lnmpp_pma';
+\$cfg['Servers'][\$i]['controluser'] = '$controluser';
 \$cfg['Servers'][\$i]['controlpass'] = '$controlpass';
 \$cfg['Servers'][\$i]['bookmarktable'] = 'pma__bookmark';
 \$cfg['Servers'][\$i]['relation'] = 'pma__relation';
@@ -453,8 +549,6 @@ SQL
 EOF
     chown root:www-data /etc/phpmyadmin/conf.d/lnmpp.php
     chmod 640 /etc/phpmyadmin/conf.d/lnmpp.php
-    printf 'username=%s\npassword=%s\nroot_password=%s\n' "$username" "$password" "$password" > "$STATE_DIR/phpmyadmin-credentials"
-    chmod 600 "$STATE_DIR/phpmyadmin-credentials"
     PMA_USERNAME=$username
     PMA_PASSWORD=$password
 }
@@ -499,7 +593,14 @@ install_stack() {
         php-curl php-zip php-gd phpmyadmin supervisor vsftpd git curl openssl python3
     local version
     version=$(php_version)
-    systemctl disable --now nginx mariadb "php$version-fpm" >/dev/null 2>&1 || true
+    local unit
+    for unit in nginx mariadb "php$version-fpm" mariadb.socket; do
+        systemctl disable --now "$unit" >/dev/null 2>&1 || true
+    done
+    systemctl mask mariadb.socket >/dev/null 2>&1 || true
+    if systemctl is-active --quiet mariadb.socket; then
+        die 'MariaDB socket 单元仍在运行，无法交给 Supervisor 接管。'
+    fi
     install -d -m 700 "$STATE_DIR" "$SITES_DIR" "$CERT_DIR"
     configure_supervisor
     configure_nginx_default
