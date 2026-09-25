@@ -72,3 +72,31 @@ jobs:
           sudo bash -c 'source ./install.sh; ensure_acme'
           sudo test -x /opt/lnmpp/acme/acme.sh
           sudo test -f /opt/lnmpp/acme/dnsapi/dns_cf.sh
+      - name: Toggle remote phpMyAdmin access
+        run: |
+          remote_ip=$(hostname -I | awk '{print $1}')
+          test -n "$remote_ip"
+          test "$remote_ip" != 127.0.0.1
+          sudo ln -s /usr/share/phpmyadmin /var/www/example.com/phpmyadmin
+          sudo install -m 644 /dev/null /var/www/example.com/healthcheck.html
+          check_status() {
+            expected=$1 url=$2 host=$3
+            for attempt in 1 2 3 4 5; do
+              actual=$(curl --noproxy '*' -sS -o /dev/null -w '%{http_code}' -H "Host: $host" "$url")
+              test "$actual" = "$expected" && return 0
+              sleep 1
+            done
+            echo "Expected $expected, got $actual from $url (Host: $host)" >&2
+            return 1
+          }
+          check_status 200 "http://$remote_ip/phpmyadmin/" "$remote_ip"
+          check_status 200 "http://$remote_ip/phpmyadmin/index.php" example.com
+          sudo bash install.sh stop phpmyadmin
+          check_status 403 "http://$remote_ip/phpmyadmin/" "$remote_ip"
+          check_status 403 "http://$remote_ip/phpmyadmin/index.php" example.com
+          check_status 200 http://127.0.0.1/phpmyadmin/ 127.0.0.1
+          check_status 200 http://127.0.0.1/phpmyadmin/index.php example.com
+          check_status 200 "http://$remote_ip/healthcheck.html" example.com
+          sudo bash install.sh start phpmyadmin
+          check_status 200 "http://$remote_ip/phpmyadmin/" "$remote_ip"
+          check_status 200 "http://$remote_ip/phpmyadmin/index.php" example.com
