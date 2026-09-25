@@ -50,6 +50,10 @@ jobs:
           sudo nginx -t
           curl -fsS -o /dev/null http://127.0.0.1/phpmyadmin/
           curl -fsS -u admin:password -o /dev/null http://127.0.0.1:8000/
+          remote_ip=$(hostname -I | awk '{print $1}')
+          test -n "$remote_ip"
+          test "$remote_ip" != 127.0.0.1
+          curl --noproxy '*' --max-time 5 -fsS -u admin:password -o /dev/null "http://$remote_ip:8000/"
           test "$(sudo systemctl is-enabled mariadb.socket)" = masked
           test "$(sudo systemctl is-enabled supervisor)" = enabled
       - name: Check management commands
