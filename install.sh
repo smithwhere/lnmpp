@@ -7,7 +7,6 @@ SITES_DIR=$STATE_DIR/sites
 CERT_DIR=$STATE_DIR/certs
 SUPERVISOR_CONF=/etc/supervisor/supervisord.conf
 NGINX_DIR=${LNMPP_NGINX_DIR:-/etc/nginx}
-PMA_ACCESS_CONF=$NGINX_DIR/conf.d/lnmpp-phpmyadmin-access.conf
 ACME_HOME=/opt/lnmpp/acme
 SCRIPT_PATH=/usr/local/lib/lnmpp/install.sh
 
@@ -104,6 +103,8 @@ php_version() {
     php -r 'echo PHP_MAJOR_VERSION, ".", PHP_MINOR_VERSION;'
 }
 
+pma_access_file() { printf '%s/conf.d/lnmpp-phpmyadmin-access.conf' "$NGINX_DIR"; }
+
 render_pma_access_config() {
     local mode=$1
     cat <<'EOF'
@@ -124,12 +125,13 @@ EOF
 }
 
 ensure_pma_access_config() {
-    local temp
-    [[ -f $PMA_ACCESS_CONF ]] && return 0
+    local temp pma_conf
+    pma_conf=$(pma_access_file)
+    [[ -f $pma_conf ]] && return 0
     install -d -m 755 "$NGINX_DIR/conf.d"
     temp=$(mktemp "$NGINX_DIR/conf.d/.lnmpp-pma.XXXXXX")
     render_pma_access_config start > "$temp"
-    install -m 644 "$temp" "$PMA_ACCESS_CONF"
+    install -m 644 "$temp" "$pma_conf"
     rm -f "$temp"
 }
 
@@ -454,7 +456,7 @@ configure_nginx_default() {
 
 toggle_phpmyadmin_remote() {
     local mode=$1 tmp dir domain i failed=0
-    local -a paths=("$PMA_ACCESS_CONF" "$NGINX_DIR/sites-available/lnmpp-default.conf")
+    local -a paths=("$(pma_access_file)" "$NGINX_DIR/sites-available/lnmpp-default.conf")
     [[ -f ${paths[1]} ]] || die 'LNMPP 默认站点配置不存在。'
     for dir in "$SITES_DIR"/*; do
         [[ -d $dir ]] || continue
