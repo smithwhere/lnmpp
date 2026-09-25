@@ -63,17 +63,35 @@ if [[ $(uname -s) == MINGW* ]]; then
     printf '%s' /var/www/example.com > "$SITES_DIR/example.com/webroot"
     printf '0' > "$SITES_DIR/example.com/ssl-enabled"
     write_site_config example.com '*.example.com' /var/www/example.com 0
+    printf '1' > "$SITES_DIR/example.com/ssl-enabled"
+    printf '70' > "$SITES_DIR/example.com/renew-days"
+    printf 'test-token' > "$SITES_DIR/example.com/cf-token"
+    printf 'certificate' > "$CERT_DIR/example.com/fullchain.pem"
+    printf 'key' > "$CERT_DIR/example.com/key.pem"
 else
     add_site 'example.com\*.example.com' "$tmp/web" > "$tmp/add-site.txt"
     assert_eq "$(<"$tmp/add-site.txt")" '网站成功创建完成'
     assert_eq "$(<"$SITES_DIR/example.com/ssl-enabled")" 0
+    cat > "$ACME_HOME/acme.sh" <<'SH'
+#!/usr/bin/env bash
+set -e
+if [[ " $* " == *' --install-cert '* ]]; then
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --key-file) printf 'key' > "$2"; shift 2 ;;
+            --fullchain-file) printf 'certificate' > "$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+fi
+SH
+    chmod +x "$ACME_HOME/acme.sh"
+    add_ssl 70 cloudflare 'example.com\*.example.com' test-token > "$tmp/add-ssl.txt"
+    assert_eq "$(<"$tmp/add-ssl.txt")" 'ssl证书成功创建完成'
+    assert_eq "$(<"$SITES_DIR/example.com/renew-days")" 70
+    assert_eq "$(<"$SITES_DIR/example.com/ssl-enabled")" 1
 fi
 assert_grep 'server_name example.com *.example.com;' "$NGINX_DIR/sites-available/lnmpp-example.com.conf"
-printf '1' > "$SITES_DIR/example.com/ssl-enabled"
-printf '70' > "$SITES_DIR/example.com/renew-days"
-printf 'test-token' > "$SITES_DIR/example.com/cf-token"
-printf 'certificate' > "$CERT_DIR/example.com/fullchain.pem"
-printf 'key' > "$CERT_DIR/example.com/key.pem"
 printf '#!/bin/sh\nexit 25\n' > "$ACME_HOME/acme.sh"
 chmod +x "$ACME_HOME/acme.sh"
 
