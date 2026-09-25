@@ -70,5 +70,5 @@ jobs:
       - name: Install acme.sh from upstream
         run: |
           sudo bash -c 'source ./install.sh; ensure_acme'
-          test -x /opt/lnmpp/acme/acme.sh
-          test -f /opt/lnmpp/acme/dnsapi/dns_cf.sh
+          sudo test -x /opt/lnmpp/acme/acme.sh
+          sudo test -f /opt/lnmpp/acme/dnsapi/dns_cf.sh
