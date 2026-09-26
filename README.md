@@ -50,7 +50,7 @@ sudo bash install.sh add example.com /var/www/example.com
 sudo bash install.sh add db dbname username 'password'
 ```
 
-用户名仅供本机连接，成功后输出 `数据库成功创建完成`。含 shell 特殊字符的密码请加引号。
+执行该 `add` 命令即可一次添加数据库名称、数据库用户名和数据库密码。用户名仅供本机连接；数据库成功创建后会提示 `数据库成功创建完成`。密码参数请用单引号括起来，单引号只是 shell 引用符，不是密码的组成部分。
 
 ## SSL
 
