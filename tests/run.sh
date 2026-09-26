@@ -35,13 +35,11 @@ done
 validate_renew_days 70
 
 password=$(random_ten)
-for value in "$password"; do
-    [[ ${#value} -eq 10 ]] || fail 'credential is not 10 characters'
-    [[ "$value" =~ [[:lower:]] ]] || fail 'credential lacks lower case'
-    [[ "$value" =~ [[:upper:]] ]] || fail 'credential lacks upper case'
-    [[ "$value" =~ [[:digit:]] ]] || fail 'credential lacks digit'
-    [[ "$value" =~ [!@#%\^\&*_+-] ]] || fail 'credential lacks special character'
-done
+[[ ${#password} -eq 10 ]] || fail 'credential is not 10 characters'
+[[ "$password" =~ [[:lower:]] ]] || fail 'credential lacks lower case'
+[[ "$password" =~ [[:upper:]] ]] || fail 'credential lacks upper case'
+[[ "$password" =~ [[:digit:]] ]] || fail 'credential lacks digit'
+[[ "$password" =~ [!@#%\^\&*_+-] ]] || fail 'credential lacks special character'
 
 assert_eq "$(sql_escape "a'b\\c")" "a''b\\\\c"
 
