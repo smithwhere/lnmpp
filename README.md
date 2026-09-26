@@ -14,9 +14,9 @@ cd lnmpp
 sudo bash install.sh
 ```
 
-安装完成后，终端会显示 `LNMPP安装成功。`、随机生成的 phpMyAdmin 用户名及密码（各 10 位，均含大小写字母、数字和特殊字符）。凭据另保存在仅 root 可读的 `/etc/lnmpp/phpmyadmin-credentials`。phpMyAdmin 位于 `http://服务器IP/phpmyadmin/`，随机账号具有数据库管理权限；也可以使用 `root` 和输出的同一密码登录。默认允许任意 IP 访问 Web 登录；可用下述命令停用远程访问。MariaDB 默认仍只监听本机，脚本没有开放数据库 TCP 远程连接。
+安装完成后，终端会显示 `LNMPP安装成功。`、随机生成的 phpMyAdmin 用户名及密码（各 10 位，均含大小写字母、数字和特殊字符）。凭据另保存在仅 root 可读的 `/etc/lnmpp/phpmyadmin-credentials`。phpMyAdmin 位于 `http://服务器IP/phpmyadmin/`，随机账号具有数据库管理权限；也可以使用 `root` 和输出的同一密码登录。默认禁止非本机 IP 访问 Web 登录；需要时可用下述命令启用远程访问。MariaDB 默认仍只监听本机，脚本没有开放数据库 TCP 远程连接。
 
-**安全提示：** 初装后的 phpMyAdmin 是公开 HTTP 页面，网络中途可观察登录凭据。由于安装时尚无域名证书，请先通过 SSH 隧道访问，或在可信网络内完成网站和证书设置；不要在不可信网络中直接输入 root 密码。Supervisor 的 HTTP 控制接口同样不加密，且使用固定账号密码，公开到互联网会带来严重风险；请优先通过防火墙或云安全组限制来源 IP，并考虑使用 SSH 隧道。安装中断后重试会复用已保存的数据库凭据。
+**安全提示：** 启用远程访问后的 phpMyAdmin 通过 HTTP 提供服务，网络中途可观察登录凭据。由于安装时尚无域名证书，请先通过 SSH 隧道访问，或在可信网络内完成网站和证书设置；不要在不可信网络中直接输入 root 密码。Supervisor 的 HTTP 控制接口同样不加密，且使用固定账号密码，公开到互联网会带来严重风险；请优先通过防火墙或云安全组限制来源 IP，并考虑使用 SSH 隧道。安装中断后重试会复用已保存的数据库凭据。
 
 ```bash
 sudo bash install.sh stop phpmyadmin
