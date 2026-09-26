@@ -93,6 +93,9 @@ jobs:
             echo "Expected $expected, got $actual from $url (Host: $host)" >&2
             return 1
           }
+          check_status 403 "http://$remote_ip/phpmyadmin/" "$remote_ip"
+          check_status 403 "http://$remote_ip/phpmyadmin/index.php" example.com
+          sudo bash install.sh start phpmyadmin
           check_status 200 "http://$remote_ip/phpmyadmin/" "$remote_ip"
           check_status 200 "http://$remote_ip/phpmyadmin/index.php" example.com
           sudo bash install.sh stop phpmyadmin

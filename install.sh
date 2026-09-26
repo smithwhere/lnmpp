@@ -130,7 +130,7 @@ ensure_pma_access_config() {
     [[ -f $pma_conf ]] && return 0
     install -d -m 755 "$NGINX_DIR/conf.d"
     temp=$(mktemp "$NGINX_DIR/conf.d/.lnmpp-pma.XXXXXX")
-    render_pma_access_config start > "$temp"
+    render_pma_access_config stop > "$temp"
     install -m 644 "$temp" "$pma_conf"
     rm -f "$temp"
 }
