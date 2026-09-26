@@ -35,14 +35,11 @@ done
 validate_renew_days 70
 
 password=$(random_ten)
-username=$(random_ten)
-for value in "$password" "$username"; do
-    [[ ${#value} -eq 10 ]] || fail 'credential is not 10 characters'
-    [[ "$value" =~ [[:lower:]] ]] || fail 'credential lacks lower case'
-    [[ "$value" =~ [[:upper:]] ]] || fail 'credential lacks upper case'
-    [[ "$value" =~ [[:digit:]] ]] || fail 'credential lacks digit'
-    [[ "$value" =~ [!@#%\^\&*_+-] ]] || fail 'credential lacks special character'
-done
+[[ ${#password} -eq 10 ]] || fail 'credential is not 10 characters'
+[[ "$password" =~ [[:lower:]] ]] || fail 'credential lacks lower case'
+[[ "$password" =~ [[:upper:]] ]] || fail 'credential lacks upper case'
+[[ "$password" =~ [[:digit:]] ]] || fail 'credential lacks digit'
+[[ "$password" =~ [!@#%\^\&*_+-] ]] || fail 'credential lacks special character'
 
 assert_eq "$(sql_escape "a'b\\c")" "a''b\\\\c"
 
@@ -179,11 +176,12 @@ assert_grep 'GRANT ALL PRIVILEGES ON `sample_db`.*' "$tmp/db.sql"
 STATE_DIR=$tmp/pma-state
 mkdir -p "$STATE_DIR"
 load_or_create_pma_credentials
-saved_username=$PMA_USERNAME
+assert_eq "$PMA_USERNAME" root
+assert_eq "$(sed -n 's/^username=//p' "$STATE_DIR/phpmyadmin-credentials")" root
 saved_password=$PMA_PASSWORD
 saved_control=$PMA_CONTROL_PASSWORD
 load_or_create_pma_credentials
-assert_eq "$PMA_USERNAME" "$saved_username"
+assert_eq "$PMA_USERNAME" root
 assert_eq "$PMA_PASSWORD" "$saved_password"
 assert_eq "$PMA_CONTROL_PASSWORD" "$saved_control"
 
