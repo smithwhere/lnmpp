@@ -557,16 +557,15 @@ EOF
 load_or_create_pma_credentials() {
     local credentials temp
     credentials=$STATE_DIR/phpmyadmin-credentials
+    PMA_USERNAME=root
     if [[ -s $credentials ]]; then
-        PMA_USERNAME=$(sed -n 's/^username=//p' "$credentials")
         PMA_PASSWORD=$(sed -n 's/^password=//p' "$credentials")
         PMA_CONTROL_USER=$(sed -n 's/^controluser=//p' "$credentials")
         PMA_CONTROL_PASSWORD=$(sed -n 's/^controlpass=//p' "$credentials")
         PMA_SECRET=$(sed -n 's/^blowfish_secret=//p' "$credentials")
-        [[ -n $PMA_USERNAME && -n $PMA_PASSWORD && -n $PMA_CONTROL_USER && -n $PMA_CONTROL_PASSWORD && -n $PMA_SECRET ]] || \
+        [[ -n $PMA_PASSWORD && -n $PMA_CONTROL_USER && -n $PMA_CONTROL_PASSWORD && -n $PMA_SECRET ]] || \
             die '已有凭据文件不完整，停止安装以免更改数据库账号。'
     else
-        PMA_USERNAME=$(random_ten)
         PMA_PASSWORD=$(random_ten)
         PMA_CONTROL_USER=lnmpp_$(openssl rand -hex 4)
         PMA_CONTROL_PASSWORD=$(openssl rand -hex 24)
@@ -580,18 +579,14 @@ load_or_create_pma_credentials() {
 }
 
 configure_phpmyadmin() {
-    local username password controluser controlpass sql_file secret
+    local password controluser controlpass sql_file secret
     load_or_create_pma_credentials
-    username=$PMA_USERNAME
     password=$PMA_PASSWORD
     controluser=$PMA_CONTROL_USER
     controlpass=$PMA_CONTROL_PASSWORD
     secret=$PMA_SECRET
     mariadb <<SQL
 ALTER USER 'root'@'localhost' IDENTIFIED VIA unix_socket OR mysql_native_password USING PASSWORD('$(sql_escape "$password")');
-CREATE USER IF NOT EXISTS '$username'@'localhost' IDENTIFIED BY '$(sql_escape "$password")';
-ALTER USER '$username'@'localhost' IDENTIFIED BY '$(sql_escape "$password")';
-GRANT ALL PRIVILEGES ON *.* TO '$username'@'localhost' WITH GRANT OPTION;
 CREATE DATABASE IF NOT EXISTS phpmyadmin CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS '$controluser'@'localhost' IDENTIFIED BY '$controlpass';
 ALTER USER '$controluser'@'localhost' IDENTIFIED BY '$controlpass';
@@ -639,7 +634,6 @@ SQL
 EOF
     chown root:www-data /etc/phpmyadmin/conf.d/lnmpp.php
     chmod 640 /etc/phpmyadmin/conf.d/lnmpp.php
-    PMA_USERNAME=$username
     PMA_PASSWORD=$password
 }
 
@@ -716,7 +710,6 @@ install_stack() {
     say 'LNMPP安装成功。'
     say "phpMyAdmin用户名：$PMA_USERNAME"
     say "phpMyAdmin密码：$PMA_PASSWORD"
-    say "root密码：$PMA_PASSWORD"
     say 'phpMyAdmin地址：http://服务器IP/phpmyadmin/'
     say 'Supervisor HTTP：http://服务器IP:8000/（admin / password）'
 }
