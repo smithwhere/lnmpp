@@ -28,6 +28,7 @@ usage() {
   bash install.sh stop phpmyadmin
   bash install.sh start phpmyadmin
   bash install.sh view phpmyadmin
+  bash install.sh reset phpmyadmin
 EOF
 }
 
@@ -589,6 +590,65 @@ view_phpmyadmin_password() {
     say "phpMyAdmin密码：$password"
 }
 
+set_pma_root_password() {
+    local escaped
+    escaped=$(sql_escape "$1")
+    mariadb <<SQL
+ALTER USER 'root'@'localhost' IDENTIFIED VIA unix_socket OR mysql_native_password USING PASSWORD('$escaped');
+SQL
+}
+
+reset_phpmyadmin_password() {
+    local credentials temp old_password new_password
+    [[ -f $STATE_DIR/installed ]] || die '请先安装 LNMPP。'
+    credentials=$STATE_DIR/phpmyadmin-credentials
+    [[ -s $credentials ]] || die '找不到 phpMyAdmin 凭据文件。'
+    load_or_create_pma_credentials
+    old_password=$PMA_PASSWORD
+    new_password=$(random_ten)
+    while [[ $new_password == "$old_password" ]]; do
+        new_password=$(random_ten)
+    done
+
+    temp=$(mktemp "$STATE_DIR/.credentials.XXXXXX") || die '无法创建临时凭据文件。'
+    if ! printf 'username=%s\npassword=%s\nroot_password=%s\ncontroluser=%s\ncontrolpass=%s\nblowfish_secret=%s\n' \
+        "$PMA_USERNAME" "$new_password" "$new_password" "$PMA_CONTROL_USER" "$PMA_CONTROL_PASSWORD" "$PMA_SECRET" > "$temp"; then
+        rm -f -- "$temp"
+        die '写入临时凭据文件失败。'
+    fi
+    if ! chmod 600 "$temp"; then
+        rm -f -- "$temp"
+        die '设置临时凭据文件权限失败。'
+    fi
+
+    if ! set_pma_root_password "$new_password"; then
+        rm -f -- "$temp"
+        die 'MariaDB root 密码重置失败，原密码保持不变。'
+    fi
+    if ! MYSQL_PWD=$new_password runuser -u www-data -- mariadb --user=root --protocol=socket \
+        --batch --skip-column-names -e 'SELECT 1' >/dev/null; then
+        if set_pma_root_password "$old_password"; then
+            rm -f -- "$temp"
+            die '新密码登录检查失败，已恢复原密码。'
+        fi
+        rm -f -- "$temp"
+        die '新密码登录检查失败，且无法恢复原密码，请立即检查 MariaDB。'
+    fi
+    if ! mv -f -- "$temp" "$credentials"; then
+        if set_pma_root_password "$old_password"; then
+            rm -f -- "$temp"
+            die '保存新凭据失败，已恢复原密码。'
+        fi
+        rm -f -- "$temp"
+        die '保存新凭据失败，且无法恢复原密码，请立即检查 MariaDB。'
+    fi
+
+    PMA_PASSWORD=$new_password
+    say 'phpMyAdmin密码已重置。'
+    say "phpMyAdmin用户名：$PMA_USERNAME"
+    say "phpMyAdmin密码：$PMA_PASSWORD"
+}
+
 configure_phpmyadmin() {
     local password controluser controlpass sql_file secret
     load_or_create_pma_credentials
@@ -760,6 +820,10 @@ main() {
         view)
             [[ $# -eq 2 && ${2:-} == phpmyadmin ]] || { usage; return 2; }
             view_phpmyadmin_password
+            ;;
+        reset)
+            [[ $# -eq 2 && ${2:-} == phpmyadmin ]] || { usage; return 2; }
+            reset_phpmyadmin_password
             ;;
         renew-all)
             [[ $# -eq 1 ]] || { usage; return 2; }
