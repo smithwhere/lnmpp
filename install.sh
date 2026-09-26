@@ -27,6 +27,7 @@ usage() {
   bash install.sh start ssl [example.com]
   bash install.sh stop phpmyadmin
   bash install.sh start phpmyadmin
+  bash install.sh view phpmyadmin
 EOF
 }
 
@@ -578,6 +579,16 @@ load_or_create_pma_credentials() {
     fi
 }
 
+view_phpmyadmin_password() {
+    local credentials password
+    [[ -f $STATE_DIR/installed ]] || die '请先安装 LNMPP。'
+    credentials=$STATE_DIR/phpmyadmin-credentials
+    [[ -s $credentials ]] || die '找不到 phpMyAdmin 凭据文件。'
+    password=$(sed -n 's/^password=//p' "$credentials")
+    [[ -n $password && $password != *$'\n'* ]] || die 'phpMyAdmin 密码不存在或格式无效。'
+    say "phpMyAdmin密码：$password"
+}
+
 configure_phpmyadmin() {
     local password controluser controlpass sql_file secret
     load_or_create_pma_credentials
@@ -745,6 +756,10 @@ main() {
                     ;;
                 *) usage; return 2 ;;
             esac
+            ;;
+        view)
+            [[ $# -eq 2 && ${2:-} == phpmyadmin ]] || { usage; return 2; }
+            view_phpmyadmin_password
             ;;
         renew-all)
             [[ $# -eq 1 ]] || { usage; return 2; }
