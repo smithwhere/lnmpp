@@ -175,6 +175,7 @@ assert_grep 'GRANT ALL PRIVILEGES ON `sample_db`.*' "$tmp/db.sql"
 
 STATE_DIR=$tmp/pma-state
 mkdir -p "$STATE_DIR"
+touch "$STATE_DIR/installed"
 load_or_create_pma_credentials
 assert_eq "$PMA_USERNAME" root
 assert_eq "$(sed -n 's/^username=//p' "$STATE_DIR/phpmyadmin-credentials")" root
@@ -184,5 +185,14 @@ load_or_create_pma_credentials
 assert_eq "$PMA_USERNAME" root
 assert_eq "$PMA_PASSWORD" "$saved_password"
 assert_eq "$PMA_CONTROL_PASSWORD" "$saved_control"
+view_output=$(view_phpmyadmin_password)
+assert_eq "$view_output" "phpMyAdmin密码：$saved_password"
+missing_state=$tmp/pma-missing-state
+mkdir -p "$missing_state"
+touch "$missing_state/installed"
+if ( STATE_DIR=$missing_state view_phpmyadmin_password ) >/dev/null 2>&1; then
+    fail 'view accepted missing phpMyAdmin credentials'
+fi
+[[ ! -e $missing_state/phpmyadmin-credentials ]] || fail 'view generated phpMyAdmin credentials'
 
 printf 'All tests passed.\n'
