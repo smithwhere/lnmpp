@@ -181,18 +181,37 @@ assert_eq "$PMA_USERNAME" root
 assert_eq "$(sed -n 's/^username=//p' "$STATE_DIR/phpmyadmin-credentials")" root
 saved_password=$PMA_PASSWORD
 saved_control=$PMA_CONTROL_PASSWORD
+saved_control_user=$PMA_CONTROL_USER
+saved_secret=$PMA_SECRET
 load_or_create_pma_credentials
 assert_eq "$PMA_USERNAME" root
 assert_eq "$PMA_PASSWORD" "$saved_password"
 assert_eq "$PMA_CONTROL_PASSWORD" "$saved_control"
 view_output=$(view_phpmyadmin_password)
 assert_eq "$view_output" "phpMyAdmin密码：$saved_password"
+random_ten() { printf 'Aa1!resetx\n'; }
+runuser() {
+    assert_eq "${MYSQL_PWD:-}" 'Aa1!resetx'
+    [[ $* == *'--user=root'* ]] || fail 'reset did not verify MariaDB root login'
+}
+reset_output=$(reset_phpmyadmin_password)
+assert_eq "$reset_output" $'phpMyAdmin密码已重置。\nphpMyAdmin用户名：root\nphpMyAdmin密码：Aa1!resetx'
+assert_eq "$(sed -n 's/^password=//p' "$STATE_DIR/phpmyadmin-credentials")" 'Aa1!resetx'
+assert_eq "$(sed -n 's/^root_password=//p' "$STATE_DIR/phpmyadmin-credentials")" 'Aa1!resetx'
+assert_eq "$(sed -n 's/^controluser=//p' "$STATE_DIR/phpmyadmin-credentials")" "$saved_control_user"
+assert_eq "$(sed -n 's/^controlpass=//p' "$STATE_DIR/phpmyadmin-credentials")" "$saved_control"
+assert_eq "$(sed -n 's/^blowfish_secret=//p' "$STATE_DIR/phpmyadmin-credentials")" "$saved_secret"
+assert_grep "ALTER USER 'root'@'localhost' IDENTIFIED VIA unix_socket OR mysql_native_password USING PASSWORD('Aa1!resetx')" "$tmp/db.sql"
+assert_eq "$(view_phpmyadmin_password)" 'phpMyAdmin密码：Aa1!resetx'
 missing_state=$tmp/pma-missing-state
 mkdir -p "$missing_state"
 touch "$missing_state/installed"
 if ( STATE_DIR=$missing_state view_phpmyadmin_password ) >/dev/null 2>&1; then
     fail 'view accepted missing phpMyAdmin credentials'
 fi
-[[ ! -e $missing_state/phpmyadmin-credentials ]] || fail 'view generated phpMyAdmin credentials'
+if ( STATE_DIR=$missing_state reset_phpmyadmin_password ) >/dev/null 2>&1; then
+    fail 'reset accepted missing phpMyAdmin credentials'
+fi
+[[ ! -e $missing_state/phpmyadmin-credentials ]] || fail 'view/reset generated phpMyAdmin credentials'
 
 printf 'All tests passed.\n'

@@ -22,9 +22,10 @@ sudo bash install.sh
 sudo bash install.sh stop phpmyadmin
 sudo bash install.sh start phpmyadmin
 sudo bash install.sh view phpmyadmin
+sudo bash install.sh reset phpmyadmin
 ```
 
-`stop` 会让外部 IP 访问 LNMPP 管理的默认站点及网站的 `/phpmyadmin` 路径时收到 403；服务器本机的 `127.0.0.1` 和 `::1` 仍可访问，网站其他路径不受影响。`start` 恢复外部访问。命令不会删除账号或数据库，重复执行也有效。`view` 会读取并显示已保存的 phpMyAdmin 密码，不受远程访问开关影响，也不会生成或重置密码。已有安装可先在仓库运行 `git pull`，再执行上述命令；切换时会重新生成脚本管理的 Nginx 站点配置，不会修改其他站点配置。
+`stop` 会让外部 IP 访问 LNMPP 管理的默认站点及网站的 `/phpmyadmin` 路径时收到 403；服务器本机的 `127.0.0.1` 和 `::1` 仍可访问，网站其他路径不受影响。`start` 恢复外部访问。命令不会删除账号或数据库，重复执行也有效。`view` 会读取并显示已保存的 phpMyAdmin 密码，不受远程访问开关影响，也不会生成或重置密码。`reset` 会生成新的 10 位随机密码（含大小写字母、数字和特殊字符），同步修改 MariaDB `root` 密码及凭据文件，并显示用户名 `root` 和新密码；它不会改变远程访问开关。已有安装可先在仓库运行 `git pull`，再执行上述命令；切换时会重新生成脚本管理的 Nginx 站点配置，不会修改其他站点配置。
 
 Supervisor 在 `/etc/supervisor/supervisord.conf` 的 `[inet_http_server]` 段配置 `port=*:8000`、`username=admin`、`password=password`，监听所有网卡。Nginx、MariaDB、PHP-FPM 分别以 `nginx`、`mariadb`、`php-fpm` 进程名由 Supervisor 接管。服务器防火墙和云安全组允许 TCP 8000 后，可打开 `http://服务器IP:8000/`。更安全的访问方式是限制公网来源 IP，或不开放公网 8000 端口并使用 SSH 转发：
 
