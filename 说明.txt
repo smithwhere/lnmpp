@@ -1,0 +1,50 @@
+https://github.com/smithwhere/lnmpp
+
+一键命令：
+
+wget -O install.sh https://raw.githubusercontent.com/smithwhere/lnmpp/refs/heads/main/install.sh && bash install.sh
+
+
+1、帮我编写一键脚本install.sh安装LNMPP，一键安装Nginx、MariaDB、PHP-FPM、phpMyAdmin，兼容 Debian 12/13/14 与 Ubuntu 22.04/24.04/26.04。在github建立一个名叫lnmpp的公开仓库，编写install.sh完毕后推送到github仓库。
+
+
+2、phpMyAdmin的用户名设置为root， 密码随机生成10位含数字，大、小写字母，特殊字符。脚本安装完成显示phpMyAdmin用户名root和随机生成的phpMyAdmin密码，在一键脚本LNMPP安装成功时提示：LNMPP安装成功。
+phpMyAdmin允许任意IP远程登录，并且配置phpMyAdmin高级功能，默认为停用远程phpMyAdmin登陆。后期用户通过启用执行远程phpMyAdmin登陆的命令来启用、停用或者查看重置。随机重置远程phpMyAdmin密码的命令：bash install.sh reset phpmyadmin，随机重置远程phpMyAdmin密码的命令后要显示重新生成的密码。
+启用远程phpMyAdmin登陆的命令：bash install.sh start phpmyadmin
+停用远程phpMyAdmin登陆的命令：bash install.sh stop phpmyadmin
+查看远程phpMyAdmin密码的命令：bash install.sh view phpmyadmin
+重置远程phpMyAdmin密码的命令：bash install.sh reset phpmyadmin
+
+
+3、Nginx、MariaDB、PHP-FPM进程由supervisor接管，进程名分别设置为nginx、mariadb、php-fpm，Supervisor HTTP配置文件路径设置为/etc/supervisor/supervisord.conf。
+开启Supervisor的HTTP端口8000
+[inet_http_server]
+port=*:8000
+username=admin
+password=password
+
+
+4、用bash install.sh add 'example.com\*.example.com' /var/www/example.com的格式来实现执行一个add命令添加网站域名 泛域名 网站路径，网站成功添加后提示：网站成功创建完成
+省略泛域名：bash install.sh add example.com /var/www/example.com
+注意：\是普通域名和泛域名的分隔符号。
+
+
+5、用bash install.sh add db dbname username 'password'的格式来实现执行一个add命令添加数据库名称、数据库用户名、数据库密码，数据库成功创建后提示：数据库成功创建完成，单引号不是密码的组成部分
+
+
+6、用bash install.sh add ssl 70 cloudflare 'example.com\*.example.com' token的格式来实现执行一个add命令添加特定网站的ssl证书，其中的70为距离证书到期不足70天自动续期，70这个数字可以自定义，ssl证书成功添加后提示：ssl证书成功创建完成
+停用ssl证书的命令：bash install.sh stop ssl example.com
+启用ssl证书的命令：bash install.sh start ssl example.com
+省略域名时分别停用或启用脚本管理的全部 SSL 站点。停用只关闭 HTTPS 配置并暂停该站点续期任务，不删除证书；启用会恢复 HTTPS 配置和续期任务。
+省略泛域名：bash install.sh add ssl 70 cloudflare example.com
+注意：\是普通域名和泛域名的分隔符号。
+
+
+7、用“bash install.sh add ftp username password”的格式来实现执行一个add命令添加ftp用户名、ftp密码，ftp成功创建后提示：ftp成功创建完成
+FTP用户默认绑定的路径：/var/www/html
+bash install.sh add ftp /var/www/example.com username password
+
+8、所有日志删除 [lnmpp] 前缀
+
+
+9、上述脚本在6 个发行版系统中测试均要正常通过。
