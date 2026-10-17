@@ -18,6 +18,11 @@ sudo bash install.sh
 
 **安全提示：** 启用远程访问后的 phpMyAdmin 通过 HTTP 提供服务，网络中途可观察登录凭据。由于安装时尚无域名证书，请先通过 SSH 隧道访问，或在可信网络内完成网站和证书设置；不要在不可信网络中直接输入 root 密码。Supervisor 的 HTTP 控制接口同样不加密，且使用固定账号密码，公开到互联网会带来严重风险；请优先通过防火墙或云安全组限制来源 IP，并考虑使用 SSH 隧道。安装中断后重试会复用已保存的数据库凭据。
 
+phpmyadmin默认关闭，执行下面命令后可以在http中开启登陆。
+```bash
+sudo bash install.sh start phpmyadmin
+```
+
 ```bash
 sudo bash install.sh stop phpmyadmin
 sudo bash install.sh start phpmyadmin
